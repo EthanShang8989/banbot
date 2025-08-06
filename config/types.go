@@ -138,6 +138,11 @@ type Config struct {
 	RPCChannels      map[string]map[string]interface{} `yaml:"rpc_channels,omitempty" mapstructure:"rpc_channels"`
 	Mail             *MailConfig                       `yaml:"mail,omitempty" mapstructure:"mail"`
 	Webhook          map[string]map[string]string      `yaml:"webhook,omitempty" mapstructure:"webhook"`
+	UseFileTradeData bool                              `yaml:"use_file_trade_data,omitempty" mapstructure:"use_file_trade_data"`
+	FileDataDir      string                            `yaml:"file_data_dir,omitempty" mapstructure:"file_data_dir"`
+	TradeTimeframe   string                            `yaml:"trade_timeframe,omitempty" mapstructure:"trade_timeframe"`
+	TradeCacheSize   int                               `yaml:"trade_cache_size,omitempty" mapstructure:"trade_cache_size"`
+	TradePreloadDays int                               `yaml:"trade_preload_days,omitempty" mapstructure:"trade_preload_days"`
 }
 
 // The strategy to run, multiple strategies can be run at the same time 运行的策略，可以多个策略同时运行

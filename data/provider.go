@@ -163,13 +163,14 @@ func (p *Provider[IKlineFeeder]) warmJobs(warmJobs []*WarmJob, pb *utils.StagedP
 
 type HistProvider struct {
 	Provider[IHistKlineFeeder]
-	getEnd    FnGetInt64
-	maxTfSecs int
-	pBar      *utils.StagedPrg
+	getEnd        FnGetInt64
+	maxTfSecs     int
+	pBar          *utils.StagedPrg
+	tradeProvider *FileTradeProvider // Trade data provider
 }
 
 func NewHistProvider(callBack FnPairKline, envEnd FuncEnvEnd, getEnd FnGetInt64, showLog bool, pBar *utils.StagedPrg) *HistProvider {
-	return &HistProvider{
+	p := &HistProvider{
 		Provider: Provider[IHistKlineFeeder]{
 			holders: make(map[string]IHistKlineFeeder),
 			newFeeder: func(pair string, tfs []string) (IHistKlineFeeder, *errs.Error) {
@@ -191,6 +192,29 @@ func NewHistProvider(callBack FnPairKline, envEnd FuncEnvEnd, getEnd FnGetInt64,
 		getEnd: getEnd,
 		pBar:   pBar,
 	}
+	
+	// Initialize trade provider if configured
+	if config.Data.UseFileTradeData {
+		dataDir := config.Data.FileDataDir
+		if dataDir == "" {
+			dataDir = config.GetDataDir()
+		}
+		timeframe := config.Data.TradeTimeframe
+		if timeframe == "" {
+			timeframe = "1m"
+		}
+		// Get market type from config (default to spot)
+		market := config.Data.MarketType
+		if market == "" || market == "spot" {
+			market = "spot"
+		} else if market == "linear" || market == "future" || market == "futures" {
+			market = "linear" // For futures
+		}
+		p.tradeProvider = NewFileTradeProvider(dataDir, timeframe, market)
+		p.tradeProvider.SetTimeRange(config.TimeRange.StartMS, config.TimeRange.EndMS)
+	}
+	
+	return p
 }
 
 func (p *HistProvider) downIfNeed() *errs.Error {
@@ -229,6 +253,19 @@ func (p *HistProvider) SubWarmPairs(items map[string]map[string]int, delOther bo
 	err = p.downIfNeed()
 	if err != nil {
 		return err
+	}
+	
+	// Add trade data for pairs if trade provider is configured
+	if p.tradeProvider != nil {
+		for pair := range items {
+			if err := p.tradeProvider.AddSymbol(pair); err != nil {
+				log.Warn("failed to add trade symbol", zap.String("pair", pair), zap.Error(err))
+			}
+		}
+		// Download all required trade data
+		if err := p.tradeProvider.DownloadAll(nil, nil, p.pBar); err != nil {
+			log.Warn("failed to download trade data", zap.Error(err))
+		}
 	}
 	maxSince := int64(0)
 	holders := make(map[string]IHistKlineFeeder)
@@ -290,7 +327,13 @@ func (p *HistProvider) LoopMain() *errs.Error {
 		return errs.NewMsg(core.ErrBadConfig, "no pairs to run")
 	}
 	makeFeeders := func() []IHistKlineFeeder {
-		return utils.ValsOfMap(p.holders)
+		feeders := utils.ValsOfMap(p.holders)
+		// Add trade feeders if available
+		if p.tradeProvider != nil {
+			tradeFeeders := p.tradeProvider.GetFeeders()
+			feeders = append(feeders, tradeFeeders...)
+		}
+		return feeders
 	}
 	totalMS := (config.TimeRange.EndMS - config.TimeRange.StartMS) / 1000
 	var pBar = utils.NewPrgBar(int(totalMS), "RunHist")
@@ -360,16 +403,26 @@ func RunHistFeeders(makeFeeders func() []IHistKlineFeeder, versions chan int, pB
 		hold.CallNext()
 		holds = holds[1:]
 		if bar.Time > lastBarMs {
-			// 更新进度条
+			// 更新进度条 - 使用虚拟时间而不是实际时间
 			if pBar != nil {
-				curMS := btime.TimeMS()
 				if pBar.Last == 0 {
-					pBar.Last = curMS
-				} else if curMS > pBar.Last {
-					pBarAdd := (curMS - pBar.Last) / 1000
+					pBar.Last = lastBarMs
+					if pBar.Last == 0 {
+						pBar.Last = bar.Time - 60000 // 默认设置为当前bar前一分钟
+					}
+				}
+				if bar.Time > pBar.Last {
+					pBarAdd := (bar.Time - pBar.Last) / 1000
 					if pBarAdd > 0 {
-						pBar.Add(int(pBarAdd))
-						pBar.Last = curMS
+						// 确保不超过最大值
+						remainingProgress := pBar.TotalNum - pBar.DoneNum
+						if int(pBarAdd) > remainingProgress {
+							pBarAdd = int64(remainingProgress)
+						}
+						if pBarAdd > 0 {
+							pBar.Add(int(pBarAdd))
+						}
+						pBar.Last = bar.Time
 					}
 				}
 			}
@@ -380,6 +433,10 @@ func RunHistFeeders(makeFeeders func() []IHistKlineFeeder, versions chan int, pB
 		if err != nil {
 			return err
 		}
+	}
+	// 确保进度条达到100%
+	if pBar != nil && pBar.DoneNum < pBar.TotalNum {
+		pBar.Add(pBar.TotalNum - pBar.DoneNum)
 	}
 	return nil
 }

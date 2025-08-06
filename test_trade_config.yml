@@ -1,0 +1,50 @@
+# Test configuration for trade data backtesting
+# 测试逐笔交易数据回测的配置文件
+
+# Enable file trade data
+use_file_trade_data: true
+file_data_dir: "/tmp/banbot_trade_data"
+trade_timeframe: "1m"
+trade_cache_size: 3      # Cache 3 days of data in memory
+trade_preload_days: 1    # Preload 1 day ahead
+
+# Time range for backtesting
+time_start: "2024-01-01"
+time_end: "2024-01-02"
+
+# Trading pairs
+pairs:
+  - BTCUSDT
+  - ETHUSDT
+
+# Exchange configuration
+exchange:
+  name: binance
+  
+# Market type: spot or linear (for futures)
+market_type: spot  # Change to "linear" for U-margined futures
+
+# Database configuration (required for backtesting)
+database:
+  url: postgresql://postgres:123@localhost:5432/ban
+
+# Run policy with a sample strategy
+run_policy:
+  - name: TradeTestStrategy
+    run_timeframes:
+      - 1m
+    pairs:
+      - BTCUSDT
+
+# Account configuration
+accounts:
+  default:
+    binance:
+      test:
+        api_key: test
+        api_secret: test
+
+# Basic backtesting configuration
+stake_amount: 100
+max_open_orders: 10
+leverage: 1
