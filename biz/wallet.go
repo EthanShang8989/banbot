@@ -448,7 +448,7 @@ func (w *BanWallets) EnterOd(od *ormo.InOutOrder) (float64, *errs.Error) {
 	}
 	var legalCost float64
 
-	if od.Enter.Amount != 0 {
+	if od.Enter != nil && od.Enter.Amount != 0 {
 		price := od.Enter.Average
 		if price == 0 {
 			price = core.GetPrice(od.Symbol)
@@ -502,7 +502,9 @@ func (w *BanWallets) EnterOd(od *ormo.InOutOrder) (float64, *errs.Error) {
 		if err != nil {
 			return 0, err
 		}
-		od.Enter.Amount = baseCost
+		if od.Enter != nil {
+			od.Enter.Amount = baseCost
+		}
 	}
 
 	return legalCost, nil
@@ -596,7 +598,11 @@ func (w *BanWallets) ConfirmOdExit(od *ormo.InOutOrder, exitPrice float64) {
 		//Here profit deducts the entry and exit handling fees. The entry handling fee has been deducted previously, so the entry handling fee needs to be added here.
 		//期货合约不涉及base币的变化。退出订单时，对锁定的定价币平仓释放
 		//这里profit扣除了入场和出场手续费，前面入场手续费已扣过了，所以这里需要加入场手续费
-		w.Cancel(odKey, quoteCode, od.Profit+od.Enter.FeeQuote, false)
+		feeQuote := 0.0
+		if od.Enter != nil {
+			feeQuote = od.Enter.FeeQuote
+		}
+		w.Cancel(odKey, quoteCode, od.Profit+feeQuote, false)
 	} else if od.Short {
 		//For short orders, priority is given to buying from the frozen price of the quote. If it is not converted to base, it will be converted to the available price of the quote.
 		//空单，优先从quote的frozen买，不兑换为base，再换算为quote的avaiable

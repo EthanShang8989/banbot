@@ -144,7 +144,7 @@ func (o *LocalOrderMgr) fillPendingOrders(orders []*ormo.InOutOrder, bar *orm.In
 		var exOrder *ormo.ExOrder
 		if od.ExitTag != "" && od.Exit != nil && od.Exit.Status < ormo.OdStatusClosed {
 			exOrder = od.Exit
-		} else if od.Enter.Status < ormo.OdStatusClosed {
+		} else if od.Enter != nil && od.Enter.Status < ormo.OdStatusClosed {
 			exOrder = od.Enter
 		} else {
 			if od.ExitTag == "" && bar != nil {
@@ -213,7 +213,7 @@ func (o *LocalOrderMgr) fillPendingOrders(orders []*ormo.InOutOrder, bar *orm.In
 	// 强制平仓超时未成交的限价入场单
 	curMS := btime.TimeMS()
 	for _, od := range orders {
-		if od.Status > ormo.InOutStatusInit || od.Enter.Price == 0 ||
+		if od.Status > ormo.InOutStatusInit || od.Enter == nil || od.Enter.Price == 0 ||
 			!strings.Contains(od.Enter.OrderType, banexg.OdTypeLimit) {
 			// Skip entered and non-limit orders
 			// 跳过已入场的以及非限价单

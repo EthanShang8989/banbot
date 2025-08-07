@@ -95,7 +95,7 @@ func (i *InOutOrder) GetInfoString(key string) string {
 }
 
 func (i *InOutOrder) EnterCost() float64 {
-	if i.Enter.Filled == 0 {
+	if i.Enter == nil || i.Enter.Filled == 0 {
 		return 0
 	}
 	var price float64
@@ -118,6 +118,9 @@ func (i *InOutOrder) HoldCost() float64 {
 }
 
 func (i *InOutOrder) HoldAmount() float64 {
+	if i.Enter == nil {
+		return 0
+	}
 	entAmt := i.Enter.Filled
 	if entAmt == 0 {
 		return 0
@@ -215,13 +218,20 @@ func (i *InOutOrder) UpdateProfits(price float64) {
 	}
 	i.Profit = profitVal - enterFee - exitFee
 	entPrice := i.InitPrice
-	if i.Enter.Average > 0 {
-		entPrice = i.Enter.Average
-	} else if i.Enter.Price > 0 {
-		entPrice = i.Enter.Price
+	entQuoteVal := float64(0)
+	if i.Enter != nil {
+		if i.Enter.Average > 0 {
+			entPrice = i.Enter.Average
+		} else if i.Enter.Price > 0 {
+			entPrice = i.Enter.Price
+		}
+		entQuoteVal = entPrice * i.Enter.Filled
 	}
-	entQuoteVal := entPrice * i.Enter.Filled
-	i.ProfitRate = i.Profit / entQuoteVal
+	if entQuoteVal > 0 {
+		i.ProfitRate = i.Profit / entQuoteVal
+	} else {
+		i.ProfitRate = 0
+	}
 	if i.ProfitRate > i.MaxPftRate {
 		i.MaxPftRate = i.ProfitRate
 	} else {
