@@ -883,10 +883,16 @@ func RunHistKline(args *RunHistArgs) *errs.Error {
 	if len(skipWarms) > 0 {
 		log.Warn("warm lacks", zap.String("items", data.StrWarmLacks(skipWarms)))
 	}
-	makeFeeders := func() []data.IHistKlineFeeder {
-		return holds
+	makeFeeders := func() []data.IHistFeeder {
+		// Convert K-line feeders to IHistFeeder using adapters
+		var feeders []data.IHistFeeder
+		for _, klineFeeder := range holds {
+			// K-line feeders now directly implement IHistFeeder
+			feeders = append(feeders, klineFeeder)
+		}
+		return feeders
 	}
-	err := data.RunHistFeeders(makeFeeders, args.VerCh, nil)
+	err := data.RunHistFeedersV2(makeFeeders, args.VerCh, nil)
 	if args.OnEnvEnd != nil {
 		args.OnEnvEnd(nil, nil)
 	}

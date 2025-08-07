@@ -54,28 +54,28 @@ func TestTradeDataIntegration(t *testing.T) {
 		t.Log("Step 3: 测试数据加载...")
 		feeder.SetSeek(startMS)
 
-		// 获取第一个 bar
-		bar := feeder.GetBar()
-		if bar == nil {
-			t.Fatal("获取 bar 失败")
+		// 获取第一个 batch
+		batch := feeder.GetBatch()
+		if batch == nil {
+			t.Fatal("获取 batch 失败")
 		}
-		t.Logf("✅ 获取到 bar，时间: %d", bar.Time)
+		t.Logf("✅ 获取到 batch，时间: %d", batch.StartTime())
 
 		// 4. 测试数据迭代
 		t.Log("Step 4: 测试数据迭代...")
 		tradeCount := 0
 		barCount := 0
 
-		for feeder.getNextMS() <= endMS && barCount < 60 { // 最多处理60个bar（60分钟）
-			bar := feeder.GetBar()
-			if bar != nil {
+		for feeder.getNextMS() <= endMS && barCount < 60 { // 最多处理60个batch（60分钟）
+			batch := feeder.GetBatch()
+			if batch != nil {
 				barCount++
 
 				// 统计交易数量
-				if feeder.tradesToFire != nil {
-					tradeCount += len(feeder.tradesToFire)
-					if barCount <= 3 { // 显示前3个bar的信息
-						t.Logf("  Bar %d: %d trades", barCount, len(feeder.tradesToFire))
+				if tradeBatch, ok := batch.(*TradeBatch); ok && len(tradeBatch.Trades) > 0 {
+					tradeCount += len(tradeBatch.Trades)
+					if barCount <= 3 { // 显示前3个batch的信息
+						t.Logf("  Batch %d: %d trades", barCount, len(tradeBatch.Trades))
 					}
 				}
 			}
@@ -83,7 +83,7 @@ func TestTradeDataIntegration(t *testing.T) {
 			feeder.CallNext()
 		}
 
-		t.Logf("✅ 处理了 %d 个 bars，包含 %d 笔交易", barCount, tradeCount)
+		t.Logf("✅ 处理了 %d 个 batches，包含 %d 笔交易", barCount, tradeCount)
 
 		// 5. 清理
 		feeder.Stop()
@@ -171,35 +171,35 @@ func TestTradeDataCallback(t *testing.T) {
 	var totalTrades int
 	var callbackCount int
 
-	// 模拟回调处理
-	processBar := func(bar *banexg.Kline) {
-		if feeder.tradesToFire != nil && len(feeder.tradesToFire) > 0 {
-			callbackCount++
-			totalTrades += len(feeder.tradesToFire)
-
-			// 分析买卖压力
-			var buyCount, sellCount int
-			for _, trade := range feeder.tradesToFire {
-				if trade.Side == banexg.OdSideBuy {
-					buyCount++
-				} else {
-					sellCount++
-				}
-			}
-
-			t.Logf("Bar %d: %d trades (Buy: %d, Sell: %d)",
-				callbackCount, len(feeder.tradesToFire), buyCount, sellCount)
-		}
-	}
-
 	// 迭代处理
 	for feeder.getNextMS() <= endMS {
-		bar := feeder.GetBar()
-		if bar != nil {
-			feeder.loadNextMinuteTrades()
-			processBar(bar)
+		batch := feeder.GetBatch()
+		if batch != nil {
+			if tradeBatch, ok := batch.(*TradeBatch); ok && len(tradeBatch.Trades) > 0 {
+				callbackCount++
+				totalTrades += len(tradeBatch.Trades)
+
+				// 分析买卖压力
+				var buyCount, sellCount int
+				for _, trade := range tradeBatch.Trades {
+					if trade.Side == banexg.OdSideBuy {
+						buyCount++
+					} else {
+						sellCount++
+					}
+				}
+
+				if callbackCount <= 5 {
+					t.Logf("Batch %d: %d trades (Buy: %d, Sell: %d)",
+						callbackCount, len(tradeBatch.Trades), buyCount, sellCount)
+				}
+			}
 		}
 		feeder.CallNext()
+		
+		if callbackCount >= 5 {
+			break // 只处理5个batch用于测试
+		}
 	}
 
 	t.Logf("✅ 处理完成: %d 个回调，共 %d 笔交易", callbackCount, totalTrades)
@@ -235,10 +235,10 @@ func ExampleTradeFeeder() {
 
 	// 迭代处理数据
 	for feeder.getNextMS() <= feeder.endMS {
-		bar := feeder.GetBar()
-		if bar != nil {
-			// 运行 bar 处理（会触发策略回调）
-			feeder.RunBar(bar)
+		batch := feeder.GetBatch()
+		if batch != nil {
+			// 运行 batch 处理（会触发策略回调）
+			feeder.RunBatch(batch)
 		}
 		feeder.CallNext()
 	}

@@ -1,0 +1,33 @@
+# 高频交易数据配置示例
+# High-frequency Trade Data Configuration Example
+
+# 数据相关配置
+data:
+  # 启用文件交易数据
+  use_file_trade_data: true
+  
+  # 交易数据目录
+  file_data_dir: "/path/to/your/data"
+  
+  # K线时间框架（用于常规K线数据）
+  trade_timeframe: "1m"
+  
+  # 交易数据缓存窗口（小时）
+  trade_cache_hours: 3
+  
+  # 交易数据时间精度（毫秒）- 高频数据的关键配置！
+  # 设置为10表示10毫秒的批处理间隔
+  trade_precision_ms: 10
+
+# 示例：不同精度配置
+# trade_precision_ms: 1     # 1毫秒超高频
+# trade_precision_ms: 10    # 10毫秒高频（默认）
+# trade_precision_ms: 100   # 100毫秒
+# trade_precision_ms: 1000  # 1秒
+# trade_precision_ms: 5000  # 5秒
+
+# 使用说明：
+# 1. trade_timeframe 控制K线数据的时间框架（1m, 5m, 15m, 1h等）
+# 2. trade_precision_ms 控制逐笔交易数据的批处理间隔（毫秒级精度）
+# 3. 对于高频策略，建议使用10ms或更小的精度
+# 4. 精度越高，内存占用和计算开销越大

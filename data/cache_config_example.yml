@@ -1,0 +1,60 @@
+# 交易数据缓存配置示例
+# Trade Data Cache Configuration Example
+
+# ========================================
+# 基础配置 Basic Configuration
+# ========================================
+
+
+# 启用文件交易数据
+# Enable file-based trade data (required for tick-by-tick backtesting)
+use_file_trade_data: true
+
+# ========================================
+# 时间框架配置 Time Frame Configuration
+# ========================================
+
+# K线数据时间框架
+# K-line data timeframe for regular candle data
+# 支持 Supported: 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w
+trade_timeframe: "1m"
+
+# 逐笔交易数据精度（毫秒）
+# Tick data precision in milliseconds for high-frequency trading
+# 默认值 Default: 10ms
+# 示例 Examples:
+#   1    - 1毫秒超高频 Ultra-high frequency
+#   10   - 10毫秒高频（推荐）High frequency (recommended)
+#   100  - 100毫秒中频 Medium frequency
+#   1000 - 1秒低频 Low frequency
+trade_precision_ms: 10
+
+# ========================================
+# 缓存配置 Cache Configuration
+# ========================================
+
+# 交易数据缓存窗口大小（小时）
+# Trade data cache window size in hours
+# 内存中保持的数据时间窗口，影响内存占用
+# Memory window size, affects memory usage
+# 默认值 Default: 3
+trade_cache_hours: 3
+
+# 缓存目录（自动管理）
+# Cache directory (automatically managed)
+# 默认值 Default: /tmp/banbot_cache
+# 用于存储解压后的小时级缓存文件
+# Used for storing decompressed hourly cache files
+# cache_dir: "/tmp/banbot_cache"
+
+# ========================================
+# 市场类型配置 Market Type Configuration
+# ========================================
+
+# 市场类型
+# Market type for data download and processing
+# 选项 Options:
+#   spot     - 现货市场 Spot market
+#   linear   - USDT-M期货 USDT-Margined Futures
+#   inverse  - COIN-M期货 Coin-Margined Futures
+market_type: "spot"

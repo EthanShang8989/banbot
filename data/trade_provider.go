@@ -76,12 +76,12 @@ func (p *FileTradeProvider) RemoveSymbol(symbol string) {
 	}
 }
 
-// GetFeeders returns all feeders as IHistKlineFeeder interface
-func (p *FileTradeProvider) GetFeeders() []IHistKlineFeeder {
+// GetFeeders returns all feeders for integration with provider
+func (p *FileTradeProvider) GetFeeders() []*TradeFeeder {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	
-	feeders := make([]IHistKlineFeeder, 0, len(p.feeders))
+	feeders := make([]*TradeFeeder, 0, len(p.feeders))
 	for _, feeder := range p.feeders {
 		feeders = append(feeders, feeder)
 	}
@@ -94,15 +94,8 @@ func (p *FileTradeProvider) DownloadAll(sess interface{}, exchange interface{}, 
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	
-	for symbol, feeder := range p.feeders {
-		if err := feeder.DownIfNeed(nil, nil, nil); err != nil {
-			log.Error("failed to download trade data",
-				zap.String("symbol", symbol),
-				zap.Error(err))
-			return err
-		}
-	}
-	
+	// TradeFeeder now downloads data in Start() method
+	// No need to explicitly download here
 	return nil
 }
 

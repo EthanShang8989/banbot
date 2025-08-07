@@ -326,13 +326,23 @@ func (p *HistProvider) LoopMain() *errs.Error {
 	if len(p.holders) == 0 {
 		return errs.NewMsg(core.ErrBadConfig, "no pairs to run")
 	}
-	makeFeeders := func() []IHistKlineFeeder {
-		feeders := utils.ValsOfMap(p.holders)
+	makeFeeders := func() []IHistFeeder {
+		var feeders []IHistFeeder
+		
+		// K-line feeders now directly implement IHistFeeder
+		for _, klineFeeder := range p.holders {
+			feeders = append(feeders, klineFeeder)
+		}
+		
 		// Add trade feeders if available
 		if p.tradeProvider != nil {
 			tradeFeeders := p.tradeProvider.GetFeeders()
-			feeders = append(feeders, tradeFeeders...)
+			for _, tf := range tradeFeeders {
+				// TradeFeeder directly implements IHistFeeder
+				feeders = append(feeders, tf)
+			}
 		}
+		
 		return feeders
 	}
 	totalMS := (config.TimeRange.EndMS - config.TimeRange.StartMS) / 1000
@@ -345,14 +355,14 @@ func (p *HistProvider) LoopMain() *errs.Error {
 	defer pBar.Close()
 	pBar.Last = config.TimeRange.StartMS
 	if p.showLog {
-		log.Info("run data loop for backtest..")
+		log.Info("run data loop for backtest with V2 interface..")
 	}
 	coreStop := core.StopAll
 	core.StopAll = func() {
 		p.Terminate()
 		coreStop()
 	}
-	err := RunHistFeeders(makeFeeders, p.dirtyVers, pBar)
+	err := RunHistFeedersV2(makeFeeders, p.dirtyVers, pBar)
 	core.StopAll = coreStop
 	if p.pBar != nil {
 		p.pBar.SetProgress("runBT", 1)
@@ -364,82 +374,7 @@ func (p *HistProvider) Terminate() {
 	p.dirtyVers <- -1
 }
 
-/*
-RunHistFeeders run hist feeders for historical data
-
-versions: When an integer greater than the previous value is received, makeFeeders will be called to re-acquire and continue running; when a negative number is received, exit immediately
-
-pBar: optional, used to display a progress bar
-*/
-func RunHistFeeders(makeFeeders func() []IHistKlineFeeder, versions chan int, pBar *utils.PrgBar) *errs.Error {
-	var hold IHistKlineFeeder
-	var lastBarMs int64
-	var oldVer int
-	var holds []IHistKlineFeeder
-	var firstInit = true
-	for {
-		var ver = 0
-		select {
-		case ver = <-versions:
-			if ver < 0 {
-				return nil
-			}
-		default:
-			ver = 0
-		}
-		if ver > oldVer || firstInit {
-			holds = makeFeeders()
-			holds = SortFeeders(holds, nil, false)
-			oldVer = max(oldVer, ver)
-			firstInit = false
-		} else {
-			holds = SortFeeders(holds, hold, true)
-		}
-		hold = holds[0]
-		bar := hold.GetBar()
-		if bar == nil {
-			break
-		}
-		hold.CallNext()
-		holds = holds[1:]
-		if bar.Time > lastBarMs {
-			// 更新进度条 - 使用虚拟时间而不是实际时间
-			if pBar != nil {
-				if pBar.Last == 0 {
-					pBar.Last = lastBarMs
-					if pBar.Last == 0 {
-						pBar.Last = bar.Time - 60000 // 默认设置为当前bar前一分钟
-					}
-				}
-				if bar.Time > pBar.Last {
-					pBarAdd := (bar.Time - pBar.Last) / 1000
-					if pBarAdd > 0 {
-						// 确保不超过最大值
-						remainingProgress := pBar.TotalNum - pBar.DoneNum
-						if int(pBarAdd) > remainingProgress {
-							pBarAdd = int64(remainingProgress)
-						}
-						if pBarAdd > 0 {
-							pBar.Add(int(pBarAdd))
-						}
-						pBar.Last = bar.Time
-					}
-				}
-			}
-			lastBarMs = bar.Time
-		}
-		// 这里不要使用多个goroutine加速，反而更慢，且导致多次回测结果略微差异
-		err := hold.RunBar(bar)
-		if err != nil {
-			return err
-		}
-	}
-	// 确保进度条达到100%
-	if pBar != nil && pBar.DoneNum < pBar.TotalNum {
-		pBar.Add(pBar.TotalNum - pBar.DoneNum)
-	}
-	return nil
-}
+// Removed deprecated RunHistFeeders function - use RunHistFeedersV2 instead
 
 func SortFeeders(holds []IHistKlineFeeder, hold IHistKlineFeeder, insert bool) []IHistKlineFeeder {
 	if insert {

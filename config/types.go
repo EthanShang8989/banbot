@@ -142,7 +142,8 @@ type Config struct {
 	FileDataDir      string                            `yaml:"file_data_dir,omitempty" mapstructure:"file_data_dir"`
 	TradeTimeframe   string                            `yaml:"trade_timeframe,omitempty" mapstructure:"trade_timeframe"`
 	TradeCacheSize   int                               `yaml:"trade_cache_size,omitempty" mapstructure:"trade_cache_size"`
-	TradePreloadDays int                               `yaml:"trade_preload_days,omitempty" mapstructure:"trade_preload_days"`
+	TradeCacheHours  int                               `yaml:"trade_cache_hours,omitempty" mapstructure:"trade_cache_hours"`
+	TradePrecisionMS int64                             `yaml:"trade_precision_ms,omitempty" mapstructure:"trade_precision_ms"`
 }
 
 // The strategy to run, multiple strategies can be run at the same time 运行的策略，可以多个策略同时运行
