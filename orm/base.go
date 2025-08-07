@@ -241,10 +241,21 @@ func DbLite(src string, path string, write bool, timeoutMs int64) (*sql.DB, *err
 				if _, err_ = db.Exec(ddl); err_ != nil {
 					return nil, errs.New(core.ErrDbExecFail, err_)
 				}
+				// 执行SQLite迁移脚本
+				if src == DbTrades {
+					if err2 := runSQLiteMigrations(db); err2 != nil {
+						return nil, err2
+					}
+				}
 			} else if err_ != nil {
 				return nil, errs.New(core.ErrDbExecFail, err_)
 			} else {
 				return nil, errs.NewMsg(core.ErrDbExecFail, "db is empty: %v", path)
+			}
+		} else if src == DbTrades && write {
+			// 对于已存在的trades数据库，也要执行迁移检查
+			if err2 := runSQLiteMigrations(db); err2 != nil {
+				return nil, err2
 			}
 		}
 		dbPathInit[path] = true
