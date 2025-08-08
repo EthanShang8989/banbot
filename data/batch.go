@@ -83,11 +83,6 @@ func (b *KlineBatch) Count() int {
 type TradeBatch struct {
 	BaseBatch
 	Trades []*banexg.Trade
-
-	// Statistics (optional)
-	TotalVolume float64
-	TotalValue  float64
-	VWAPPrice   float64 // Volume-weighted average price
 }
 
 // NewTradeBatch creates a new trade batch
@@ -103,16 +98,9 @@ func NewTradeBatch(symbol string, startMS, endMS int64) *TradeBatch {
 	}
 }
 
-// AddTrade adds a trade to the batch and updates statistics
+// AddTrade adds a trade to the batch
 func (b *TradeBatch) AddTrade(trade *banexg.Trade) {
 	b.Trades = append(b.Trades, trade)
-
-	// Update statistics
-	b.TotalVolume += trade.Amount
-	b.TotalValue += trade.Amount * trade.Price
-	if b.TotalVolume > 0 {
-		b.VWAPPrice = b.TotalValue / b.TotalVolume
-	}
 }
 
 func (b *TradeBatch) IsEmpty() bool { return len(b.Trades) == 0 }

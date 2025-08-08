@@ -63,7 +63,7 @@ func TestBatchInterfaceV2(t *testing.T) {
 		assert.Equal(t, BatchTypeTrade, batch.Type())
 		assert.False(t, batch.IsEmpty())
 		assert.Equal(t, 2, batch.Count())
-		assert.InDelta(t, 0.8, batch.TotalVolume, 0.001)
+		assert.Equal(t, 2, len(batch.Trades))
 	})
 }
 

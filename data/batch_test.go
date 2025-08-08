@@ -87,9 +87,9 @@ func TestTradeBatch(t *testing.T) {
 
 		assert.False(t, batch.IsEmpty())
 		assert.Equal(t, 1, batch.Count())
-		assert.Equal(t, 0.5, batch.TotalVolume)
-		assert.Equal(t, 21000.0, batch.TotalValue)
-		assert.Equal(t, 42000.0, batch.VWAPPrice)
+		assert.Equal(t, 1, len(batch.Trades))
+		assert.Equal(t, 42000.0, batch.Trades[0].Price)
+		assert.Equal(t, 0.5, batch.Trades[0].Amount)
 
 		// Add second trade
 		trade2 := &banexg.Trade{
@@ -103,21 +103,21 @@ func TestTradeBatch(t *testing.T) {
 		batch.AddTrade(trade2)
 
 		assert.Equal(t, 2, batch.Count())
-		assert.Equal(t, 1.5, batch.TotalVolume)
-		assert.Equal(t, 63100.0, batch.TotalValue)
-		assert.InDelta(t, 42066.67, batch.VWAPPrice, 0.01)
+		assert.Equal(t, 2, len(batch.Trades))
+		assert.Equal(t, 42100.0, batch.Trades[1].Price)
+		assert.Equal(t, 1.0, batch.Trades[1].Amount)
 	})
 
-	t.Run("VWAP calculation", func(t *testing.T) {
+	t.Run("Multiple trades", func(t *testing.T) {
 		batch := NewTradeBatch("BTC/USDT", 1704067200000, 1704067200010)
 
 		trades := []struct {
 			price  float64
 			amount float64
 		}{
-			{100.0, 10.0},  // 1000 value
-			{110.0, 20.0},  // 2200 value
-			{105.0, 15.0},  // 1575 value
+			{100.0, 10.0},
+			{110.0, 20.0},
+			{105.0, 15.0},
 		}
 
 		for i, tr := range trades {
@@ -129,14 +129,13 @@ func TestTradeBatch(t *testing.T) {
 			})
 		}
 
-		expectedVolume := 45.0                          // 10 + 20 + 15
-		expectedValue := 4775.0                         // 1000 + 2200 + 1575
-		expectedVWAP := expectedValue / expectedVolume  // 106.111...
-
 		assert.Equal(t, 3, batch.Count())
-		assert.Equal(t, expectedVolume, batch.TotalVolume)
-		assert.Equal(t, expectedValue, batch.TotalValue)
-		assert.InDelta(t, expectedVWAP, batch.VWAPPrice, 0.01)
+		assert.Equal(t, 3, len(batch.Trades))
+		// Verify trades are stored correctly
+		assert.Equal(t, 100.0, batch.Trades[0].Price)
+		assert.Equal(t, 10.0, batch.Trades[0].Amount)
+		assert.Equal(t, 110.0, batch.Trades[1].Price)
+		assert.Equal(t, 20.0, batch.Trades[1].Amount)
 	})
 }
 
@@ -144,7 +143,7 @@ func TestBatchConfig(t *testing.T) {
 	config := DefaultBatchConfig()
 
 	assert.Equal(t, int64(10), config.TradePrecisionMS)
-	assert.Equal(t, 10000, config.MaxTradesPerBatch)
+	assert.Equal(t, 50000, config.MaxTradesPerBatch)
 	assert.Equal(t, 100, config.MaxBatchMemoryMB)
 }
 
