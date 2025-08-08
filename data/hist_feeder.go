@@ -8,27 +8,26 @@ import (
 // IHistFeeder is the base interface for all historical data feeders
 type IHistFeeder interface {
 	// Time management
-	getNextMS() int64        // Get next event time
-	SetSeek(since int64)     // Set start time
-	SetEndMS(ms int64)       // Set end time
-	
+	getNextMS() int64    // Get next event time
+	SetSeek(since int64) // Set start time
+	SetEndMS(ms int64)   // Set end time
+
 	// Batch processing
-	GetBatch() Batch                   // Get next batch of data
-	RunBatch(batch Batch) *errs.Error  // Process batch
-	CallNext()                          // Move to next time period
+	GetBatch() Batch                  // Get next batch of data
+	RunBatch(batch Batch) *errs.Error // Process batch
+	CallNext()                        // Move to next time period
 }
 
 // IHistWSFeeder is for WebSocket-like data feeders (trades, depth, ticker)
 type IHistWSFeeder interface {
 	IHistFeeder
-	
+
 	// Symbol information
 	getSymbol() string
-	
+
 	// Warmup period handling
 	Warmup(curMS, startMS int64, pBar *utils.PrgBar) *errs.Error
 }
-
 
 // TradeFeederAdapter adapts TradeFeeder to IHistWSFeeder
 type TradeFeederAdapter struct {
@@ -61,19 +60,19 @@ func (a *TradeFeederAdapter) SetEndMS(ms int64) {
 
 func (a *TradeFeederAdapter) GetBatch() Batch {
 	// Check if we've reached the end
-	if a.nextBarMS > a.endMS + a.precisionMS {
+	if a.nextBarMS > a.endMS+a.precisionMS {
 		return nil
 	}
-	
+
 	// Create batch for current time window
 	startMS := a.nextBarMS - a.precisionMS
 	batch := NewTradeBatch(a.symbol, startMS, a.nextBarMS)
-	
+
 	// Add trades in this time window
 	for _, trade := range a.tradesToFire {
 		batch.AddTrade(trade)
 	}
-	
+
 	return batch
 }
 
@@ -87,7 +86,7 @@ func (a *TradeFeederAdapter) RunBatch(batch Batch) *errs.Error {
 func (a *TradeFeederAdapter) CallNext() {
 	a.nextBarMS += a.precisionMS
 	if a.nextBarMS <= a.endMS {
-		a.loadNextMinuteTrades()
+		a.loadNextBatchTrades()
 	}
 }
 

@@ -26,7 +26,7 @@ type IProvider interface {
 	SetDirty()
 }
 
-type Provider[T IKlineFeeder] struct {
+type Provider[T IKlineFeeder,] struct {
 	holders   map[string]T
 	newFeeder func(pair string, tfs []string) (T, *errs.Error)
 	dirtyVers chan int
@@ -362,7 +362,7 @@ func (p *HistProvider) LoopMain() *errs.Error {
 		p.Terminate()
 		coreStop()
 	}
-	err := RunHistFeedersV2(makeFeeders, p.dirtyVers, pBar)
+	err := RunHistFeeders(makeFeeders, p.dirtyVers, pBar)
 	core.StopAll = coreStop
 	if p.pBar != nil {
 		p.pBar.SetProgress("runBT", 1)
@@ -374,7 +374,7 @@ func (p *HistProvider) Terminate() {
 	p.dirtyVers <- -1
 }
 
-// Removed deprecated RunHistFeeders function - use RunHistFeedersV2 instead
+// Removed deprecated old RunHistFeeders function
 
 func SortFeeders(holds []IHistKlineFeeder, hold IHistKlineFeeder, insert bool) []IHistKlineFeeder {
 	if insert {

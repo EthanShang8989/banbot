@@ -67,9 +67,9 @@ func TestBatchInterfaceV2(t *testing.T) {
 	})
 }
 
-func TestRunHistFeedersV2(t *testing.T) {
+func TestRunHistFeeders(t *testing.T) {
 	t.Run("BasicFunctionality", func(t *testing.T) {
-		// Simple test to verify RunHistFeedersV2 works
+		// Simple test to verify RunHistFeeders works
 		processed := 0
 		
 		// Create a simple mock feeder
@@ -96,12 +96,12 @@ func TestRunHistFeedersV2(t *testing.T) {
 		
 		// Run test
 		core.BotRunning = true
-		err := RunHistFeedersV2(makeFeeders, versions, nil)
+		err := RunHistFeeders(makeFeeders, versions, nil)
 		core.BotRunning = false
 		
 		// Check if error is expected (e.g., no more data)
 		if err != nil {
-			t.Logf("RunHistFeedersV2 returned: %v", err)
+			t.Logf("RunHistFeeders returned: %v", err)
 		}
 		assert.Equal(t, 2, processed, "should process 2 batches")
 	})

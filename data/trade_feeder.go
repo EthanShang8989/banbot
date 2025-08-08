@@ -38,6 +38,9 @@ type TradeFeeder struct {
 	// Hour-level memory cache for fast access
 	hourCache    map[string][]*banexg.Trade // "date-hour" -> trades
 	lastLoadHour int                        // Last loaded hour to track changes
+	
+	// Optimized cache with streaming
+	optimizedCache *OptimizedTradeCache
 
 	// Time management
 	startMS     int64 // Backtest start time
@@ -67,20 +70,21 @@ func NewTradeFeeder(symbol, dataDir string, startMS, endMS int64, timeframe stri
 	cacheSize := min(dayCount, maxCacheDays)
 
 	return &TradeFeeder{
-		symbol:       symbol,
-		dataDir:      dataDir,
-		market:       market,
-		downloader:   NewBinanceDataDownloader(dataDir, market),
-		fileCache:    make(map[string][]*banexg.Trade),
-		cacheSize:    cacheSize,
-		cache:        NewTradeCache(""), // Use default /tmp/banbot_cache
-		cacheReady:   make(map[string]bool),
-		hourCache:    make(map[string][]*banexg.Trade),
-		lastLoadHour: -1,
-		startMS:      startMS,
-		endMS:        endMS,
-		timeFrameMS:  int64(tfSecs) * 1000,
-		nextBarMS:    startMS + int64(tfSecs)*1000,
+		symbol:         symbol,
+		dataDir:        dataDir,
+		market:         market,
+		downloader:     NewBinanceDataDownloader(dataDir, market),
+		fileCache:      make(map[string][]*banexg.Trade),
+		cacheSize:      cacheSize,
+		cache:          NewTradeCache(""), // Use default /tmp/banbot_cache
+		cacheReady:     make(map[string]bool),
+		hourCache:      make(map[string][]*banexg.Trade),
+		lastLoadHour:   -1,
+		optimizedCache: NewOptimizedTradeCache(),
+		startMS:        startMS,
+		endMS:          endMS,
+		timeFrameMS:    int64(tfSecs) * 1000,
+		nextBarMS:      startMS + int64(tfSecs)*1000,
 	}
 }
 
@@ -120,7 +124,7 @@ func (f *TradeFeeder) GetBatch() Batch {
 
 	// Ensure trades are loaded for current time window
 	if f.tradesToFire == nil {
-		f.loadNextMinuteTrades()
+		f.loadNextBatchTrades()
 	}
 
 	// Create batch for current time window
@@ -157,7 +161,7 @@ func (f *TradeFeeder) RunBatch(batch Batch) *errs.Error {
 func (f *TradeFeeder) CallNext() {
 	f.nextBarMS += f.timeFrameMS
 	if f.nextBarMS <= f.endMS {
-		f.loadNextMinuteTrades()
+		f.loadNextBatchTrades()
 	}
 }
 
@@ -247,7 +251,7 @@ func (f *TradeFeeder) preloadFiles() *errs.Error {
 
 // Removed parseTradeRecord - functionality moved to trade_cache.go parseTradeFields
 
-func (f *TradeFeeder) loadNextMinuteTrades() {
+func (f *TradeFeeder) loadNextBatchTrades() {
 	startMS := f.nextBarMS - f.timeFrameMS
 	endMS := f.nextBarMS
 
@@ -262,50 +266,35 @@ func (f *TradeFeeder) loadNextMinuteTrades() {
 		f.lastLoadHour = currentHour
 	}
 
-	// Filter trades from memory cache
+	// Use optimized cache for efficient reading
 	var trades []*banexg.Trade
 
 	// If crossing day boundary, handle separately
 	if startTime.Day() != endTime.Day() {
 		// Load from current day
 		dateStr := startTime.Format("2006-01-02")
-		for hour := startTime.Hour(); hour <= 23; hour++ {
-			key := fmt.Sprintf("%s-%02d", dateStr, hour)
-			if hourTrades, exists := f.hourCache[key]; exists {
-				for _, trade := range hourTrades {
-					if trade.Timestamp >= startMS && trade.Timestamp < endMS {
-						trades = append(trades, trade)
-					}
-				}
-			}
-		}
+		trades = append(trades, f.optimizedCache.ReadTimeRange(dateStr, startMS, endMS, startTime.Hour(), 23)...)
+		
 		// Load from next day
 		nextDate := endTime.Format("2006-01-02")
-		for hour := 0; hour <= endTime.Hour(); hour++ {
-			key := fmt.Sprintf("%s-%02d", nextDate, hour)
-			if hourTrades, exists := f.hourCache[key]; exists {
-				for _, trade := range hourTrades {
-					if trade.Timestamp >= startMS && trade.Timestamp < endMS {
-						trades = append(trades, trade)
-					}
-				}
-			}
-		}
+		trades = append(trades, f.optimizedCache.ReadTimeRange(nextDate, startMS, endMS, 0, endTime.Hour())...)
+		
+		// Clean up old hours from previous days
+		currentKey := fmt.Sprintf("%s-%02d", dateStr, currentHour)
+		f.optimizedCache.CleanupBefore(currentKey)
 	} else {
-		// Same day, filter from relevant hours
+		// Same day - use optimized reading
 		dateStr := startTime.Format("2006-01-02")
 		startHour := startTime.Hour()
 		endHour := endTime.Hour()
-
-		for hour := startHour; hour <= endHour; hour++ {
-			key := fmt.Sprintf("%s-%02d", dateStr, hour)
-			if hourTrades, exists := f.hourCache[key]; exists {
-				for _, trade := range hourTrades {
-					if trade.Timestamp >= startMS && trade.Timestamp < endMS {
-						trades = append(trades, trade)
-					}
-				}
-			}
+		
+		trades = f.optimizedCache.ReadTimeRange(dateStr, startMS, endMS, startHour, endHour)
+		
+		// Clean up old hours periodically
+		if currentHour > 0 && currentHour % 3 == 0 {
+			// Every 3 hours, clean up old data
+			currentKey := fmt.Sprintf("%s-%02d", dateStr, currentHour)
+			f.optimizedCache.CleanupBefore(currentKey)
 		}
 	}
 
@@ -409,6 +398,8 @@ func (f *TradeFeeder) preloadHourWindow(currentTime time.Time) {
 		}
 
 		f.hourCache[key] = hourTrades
+		// Also load into optimized cache
+		f.optimizedCache.LoadHour(key, hourTrades)
 		loadedCount++
 	}
 

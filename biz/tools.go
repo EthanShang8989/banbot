@@ -892,7 +892,7 @@ func RunHistKline(args *RunHistArgs) *errs.Error {
 		}
 		return feeders
 	}
-	err := data.RunHistFeedersV2(makeFeeders, args.VerCh, nil)
+	err := data.RunHistFeeders(makeFeeders, args.VerCh, nil)
 	if args.OnEnvEnd != nil {
 		args.OnEnvEnd(nil, nil)
 	}
