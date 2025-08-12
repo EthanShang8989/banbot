@@ -51,6 +51,9 @@ type BanConn struct {
 	heartBeatMs int64               // Timestamp of the latest received ping/pong
 	DoConnect   func(conn *BanConn) // Reconnect function, no attempt to reconnect provided 重新连接函数，未提供不尝试重新连接
 	ReInitConn  func()              // Initialize callback function after successful reconnection 重新连接成功后初始化回调函数
+	IsServer    bool                // Flag to indicate if this is a server connection
+	CloseFlag   bool                // Flag to indicate connection should be closed
+	OnClose     func()              // Callback when connection is closed
 }
 
 type IOMsg struct {
@@ -72,7 +75,7 @@ func (c *BanConn) GetRemote() string {
 	return c.Remote
 }
 func (c *BanConn) IsClosed() bool {
-	return c.Conn == nil || !c.Ready
+	return c.Conn == nil || !c.Ready || c.CloseFlag
 }
 func (c *BanConn) HasTag(tag string) bool {
 	c.lockTag.Lock()
@@ -82,7 +85,7 @@ func (c *BanConn) HasTag(tag string) bool {
 }
 
 func (c *BanConn) WriteMsg(msg *IOMsg) *errs.Error {
-	if c.Conn == nil {
+	if c.Conn == nil || c.CloseFlag {
 		return errs.NewMsg(errs.CodeIOWriteFail, "write fail as disconnected")
 	}
 	raw, err_ := utils.Marshal(*msg)
@@ -97,7 +100,7 @@ func (c *BanConn) WriteMsg(msg *IOMsg) *errs.Error {
 }
 
 func (c *BanConn) Write(data []byte, locked bool) *errs.Error {
-	if c.Conn == nil {
+	if c.Conn == nil || c.CloseFlag {
 		return errs.NewMsg(errs.CodeIOWriteFail, "write fail as disconnected")
 	}
 	if !locked {
@@ -112,10 +115,13 @@ func (c *BanConn) Write(data []byte, locked bool) *errs.Error {
 		if err_ != nil {
 			c.Ready = false
 			errCode, errType := getErrType(err_)
-			if c.DoConnect != nil && errCode == core.ErrNetConnect {
+			if c.DoConnect != nil && errCode == core.ErrNetConnect && !c.IsServer {
 				log.Warn("write fail, wait 3s and retry", zap.String("type", errType))
 				c.connect()
 				return c.Write(data, true)
+			}
+			if c.IsServer {
+				c.CloseFlag = true
 			}
 			return errs.New(errCode, err_)
 		}
@@ -124,6 +130,9 @@ func (c *BanConn) Write(data []byte, locked bool) *errs.Error {
 			if err_ != nil {
 				c.Ready = false
 				errCode, _ := getErrType(err_)
+				if c.IsServer {
+					c.CloseFlag = true
+				}
 				return errs.New(errCode, err_)
 			}
 			return nil
@@ -210,6 +219,7 @@ func (c *BanConn) RunForever() *errs.Error {
 	defer func() {
 		c.Ready = false
 		c.IsReading = false
+		c.CloseFlag = true
 		if c.Conn != nil {
 			err_ := c.Conn.Close()
 			if err_ != nil {
@@ -217,9 +227,15 @@ func (c *BanConn) RunForever() *errs.Error {
 			}
 			c.Conn = nil
 		}
+		if c.OnClose != nil {
+			c.OnClose()
+		}
 	}()
 	c.IsReading = true
 	for {
+		if c.CloseFlag {
+			return errs.NewMsg(core.ErrRunTime, "connection closed by flag")
+		}
 		msg, err := c.ReadMsg()
 		if err != nil {
 			if err.Code == core.ErrDeCompressFail {
@@ -278,12 +294,17 @@ func (c *BanConn) LoopPing(intvSecs int) {
 	addrField := zap.String("addr", c.Remote)
 	for {
 		core.Sleep(time.Duration(intvSecs) * time.Second)
+		if c.CloseFlag {
+			log.Info("exit ping loop as close flag set", addrField)
+			break
+		}
 		if !c.IsReading {
 			continue
 		}
 		timeouts := float64(btime.UTCStamp()-c.heartBeatMs) / 1000 / float64(intvSecs)
 		if id > 1 && timeouts > 2.2 {
 			log.Error("close conn as ping timeout", addrField, zap.Int64("last", c.heartBeatMs))
+			c.CloseFlag = true
 			break
 		}
 		id += 1
@@ -293,6 +314,7 @@ func (c *BanConn) LoopPing(intvSecs int) {
 			if failNum >= 2 {
 				// 连续两次失败退出
 				log.Error("close conn as ping fail", addrField, zap.String("err", err.Short()))
+				c.CloseFlag = true
 				break
 			} else {
 				log.Warn("write ping fail", addrField, zap.Error(err))
@@ -327,6 +349,9 @@ func (c *BanConn) initListens() {
 		err := c.WriteMsg(&IOMsg{Action: "pong", Data: val + 1})
 		if err != nil {
 			log.Warn("write pong fail", zap.Int64("v", val), zap.Error(err))
+			if c.IsServer {
+				c.CloseFlag = true
+			}
 		} else {
 			c.heartBeatMs = btime.UTCStamp()
 			log.Debug("receive ping", zap.String("from", c.Remote), zap.Int64("v", val))
@@ -428,12 +453,14 @@ func getErrType(err error) (int, string) {
 }
 
 type ServerIO struct {
-	Addr     string
-	Name     string
-	Conns    []IBanConn
-	Data     map[string]string // Cache data available for remote access 缓存的数据，可供远程端访问
-	DataExp  map[string]int64  // Cache data expiration timestamp, 13 bits 缓存数据的过期时间戳，13位
-	InitConn func(*BanConn)
+	Addr      string
+	Name      string
+	Conns     []IBanConn
+	Data      map[string]string // Cache data available for remote access 缓存的数据，可供远程端访问
+	DataExp   map[string]int64  // Cache data expiration timestamp, 13 bits 缓存数据的过期时间戳，13位
+	InitConn  func(*BanConn)
+	lockConns deadlock.RWMutex
+	stopFlag  bool
 }
 
 var (
@@ -456,14 +483,31 @@ func (s *ServerIO) RunForever() *errs.Error {
 	}
 	defer ln.Close()
 	log.Info("banio started", zap.String("name", s.Name), zap.String("addr", s.Addr))
-	for {
+	
+	// Start connection cleaner goroutine
+	go s.cleanDeadConnections()
+	
+	// Start server heartbeat checker
+	go s.checkHeartbeats()
+	
+	// Start server-side heartbeat sender
+	go s.sendHeartbeats()
+	
+	for !s.stopFlag {
 		conn_, err_ := ln.Accept()
 		if err_ != nil {
+			if s.stopFlag {
+				return nil
+			}
 			return errs.New(core.ErrNetConnect, err_)
 		}
 		conn := s.WrapConn(conn_)
 		log.Info("receive client", zap.String("remote", conn.GetRemote()))
+		
+		s.lockConns.Lock()
 		s.Conns = append(s.Conns, conn)
+		s.lockConns.Unlock()
+		
 		go func() {
 			err := conn.RunForever()
 			if err != nil {
@@ -472,6 +516,7 @@ func (s *ServerIO) RunForever() *errs.Error {
 			}
 		}()
 	}
+	return nil
 }
 
 type KeyValExpire struct {
@@ -513,18 +558,15 @@ func (s *ServerIO) GetVal(key string) string {
 }
 
 func (s *ServerIO) Broadcast(msg *IOMsg) *errs.Error {
-	allConns := make([]IBanConn, 0, len(s.Conns))
+	s.lockConns.RLock()
 	curConns := make([]IBanConn, 0)
 	for _, conn := range s.Conns {
-		if conn.IsClosed() {
-			continue
-		}
-		allConns = append(allConns, conn)
-		if conn.HasTag(msg.Action) {
+		if !conn.IsClosed() && conn.HasTag(msg.Action) {
 			curConns = append(curConns, conn)
 		}
 	}
-	s.Conns = allConns
+	s.lockConns.RUnlock()
+	
 	if len(curConns) == 0 {
 		return nil
 	}
@@ -548,14 +590,94 @@ func (s *ServerIO) Broadcast(msg *IOMsg) *errs.Error {
 	return nil
 }
 
+// cleanDeadConnections periodically removes closed connections from the connection pool
+func (s *ServerIO) cleanDeadConnections() {
+	for !s.stopFlag {
+		core.Sleep(time.Second * 10)
+		
+		s.lockConns.Lock()
+		activeConns := make([]IBanConn, 0, len(s.Conns))
+		for _, conn := range s.Conns {
+			if !conn.IsClosed() {
+				activeConns = append(activeConns, conn)
+			} else {
+				log.Info("removing dead connection", zap.String("remote", conn.GetRemote()))
+			}
+		}
+		if len(activeConns) != len(s.Conns) {
+			log.Info("cleaned connections", zap.Int("before", len(s.Conns)), 
+				zap.Int("after", len(activeConns)))
+			s.Conns = activeConns
+		}
+		s.lockConns.Unlock()
+	}
+}
+
+// checkHeartbeats monitors server-side connections and closes inactive ones
+func (s *ServerIO) checkHeartbeats() {
+	for !s.stopFlag {
+		core.Sleep(time.Second * 30)
+		
+		s.lockConns.RLock()
+		conns := make([]IBanConn, len(s.Conns))
+		copy(conns, s.Conns)
+		s.lockConns.RUnlock()
+		
+		nowMs := btime.UTCStamp()
+		for _, conn := range conns {
+			if banConn, ok := conn.(*BanConn); ok {
+				// Check if connection is inactive for more than 90 seconds
+				if banConn.IsServer && !banConn.CloseFlag && 
+					nowMs - banConn.heartBeatMs > 90000 {
+					log.Warn("closing inactive connection", 
+						zap.String("remote", banConn.Remote),
+						zap.Int64("lastHB", banConn.heartBeatMs))
+					banConn.CloseFlag = true
+				}
+			}
+		}
+	}
+}
+
+// sendHeartbeats sends periodic heartbeats from server to all active clients
+func (s *ServerIO) sendHeartbeats() {
+	id := 0
+	for !s.stopFlag {
+		core.Sleep(time.Second * 20)
+		
+		s.lockConns.RLock()
+		conns := make([]IBanConn, len(s.Conns))
+		copy(conns, s.Conns)
+		s.lockConns.RUnlock()
+		
+		id++
+		for _, conn := range conns {
+			if !conn.IsClosed() {
+				if banConn, ok := conn.(*BanConn); ok && banConn.IsServer {
+					go func(c *BanConn, pingId int) {
+						err := c.WriteMsg(&IOMsg{Action: "ping", Data: pingId})
+						if err != nil {
+							log.Debug("server ping fail", zap.String("remote", c.Remote), 
+								zap.Error(err))
+							c.CloseFlag = true
+						}
+					}(banConn, id)
+				}
+			}
+		}
+	}
+}
+
 func (s *ServerIO) WrapConn(conn net.Conn) *BanConn {
 	res := &BanConn{
-		Conn:      conn,
-		Tags:      map[string]bool{},
-		Listens:   map[string]ConnCB{},
-		RefreshMS: btime.TimeMS(),
-		Ready:     true,
-		Remote:    conn.RemoteAddr().String(),
+		Conn:        conn,
+		Tags:        map[string]bool{},
+		Listens:     map[string]ConnCB{},
+		RefreshMS:   btime.TimeMS(),
+		Ready:       true,
+		Remote:      conn.RemoteAddr().String(),
+		IsServer:    true,
+		heartBeatMs: btime.UTCStamp(),
 	}
 	res.Listens["onGetVal"] = func(action string, data []byte) {
 		var key string
@@ -603,12 +725,14 @@ func NewClientIO(addr string) (*ClientIO, *errs.Error) {
 	res := &ClientIO{
 		Addr: addr,
 		BanConn: BanConn{
-			Conn:      conn,
-			Tags:      map[string]bool{},
-			Remote:    conn.RemoteAddr().String(),
-			Listens:   map[string]ConnCB{},
-			RefreshMS: btime.TimeMS(),
-			Ready:     true,
+			Conn:        conn,
+			Tags:        map[string]bool{},
+			Remote:      conn.RemoteAddr().String(),
+			Listens:     map[string]ConnCB{},
+			RefreshMS:   btime.TimeMS(),
+			Ready:       true,
+			heartBeatMs: btime.UTCStamp(),
+			IsServer:    false,
 		},
 		waits: map[string]chan string{},
 	}
@@ -629,21 +753,28 @@ func NewClientIO(addr string) (*ClientIO, *errs.Error) {
 	// This is only responsible for connection, no initialization required, leave it to connect for initialization
 	// 这里只负责连接，无需初始化，交给connect初始化
 	res.DoConnect = func(c *BanConn) {
-		for {
+		retryCount := 0
+		for !c.CloseFlag {
 			cn, err_ := net.Dial("tcp", addr)
 			if err_ != nil {
+				retryCount++
 				curMS := btime.TimeMS()
 				tipRetryTimesLock.Lock()
 				nextMS, _ := tipRetryTimes[addr]
 				if curMS > nextMS {
 					tipRetryTimes[addr] = curMS + 10000
-					log.Error("connect fail, sleep 10s and retry..", zap.String("addr", addr))
+					log.Error("connect fail, sleep 10s and retry..", 
+						zap.String("addr", addr), 
+						zap.Int("retry", retryCount))
 				}
 				tipRetryTimesLock.Unlock()
 				core.Sleep(time.Second * 10)
 				continue
 			}
 			c.Conn = cn
+			c.Remote = cn.RemoteAddr().String()
+			c.heartBeatMs = btime.UTCStamp()
+			retryCount = 0
 			return
 		}
 	}
