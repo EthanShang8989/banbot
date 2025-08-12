@@ -498,8 +498,10 @@ func (f *KlineFeeder) onNewBars(barTfMSecs int64, bars []*banexg.Kline) (bool, *
 	var hourBars []*banexg.Kline
 	useHour := false
 	hourMSecs, hourAlignOff := int64(3600000), int64(0)
+	firstReadHours := false
 	if f.hour != nil {
 		useHour = true
+		firstReadHours = f.hour.FirstRead
 		hourBars = f.hour.ReadTo(endMS, true)
 	}
 	minState, minOhlcvs := state, ohlcvs
@@ -542,16 +544,25 @@ func (f *KlineFeeder) onNewBars(barTfMSecs int64, bars []*banexg.Kline) (bool, *
 			f.onStateOhlcvs(state, curOhlcvs, lastDone)
 		}
 	}
+	isWarmUp := false
 	if useHour && minState.TFSecs >= 3600 {
 		if len(hourBars) == 0 {
 			return false, nil
 		}
 		minOhlcvs = hourBars
 		lastOk = true
+		isWarmUp = firstReadHours
 	}
 	//Subsequence period dimension <= current dimension. When receiving the data sent by the spider, there may be 3 or more ohlcvs
 	//子序列周期维度<=当前维度。当收到spider发送的数据时，这里可能是3个或更多ohlcvs
+	if isWarmUp {
+		// 对于4h及以上的实盘时，第一次会读取1h的一些k线，应当视为预热
+		f.isWarmUp = true
+	}
 	doneBars := f.onStateOhlcvs(minState, minOhlcvs, lastOk)
+	if isWarmUp {
+		f.isWarmUp = false
+	}
 	return len(doneBars) > 0, nil
 }
 
@@ -721,11 +732,12 @@ type TfKlineLoader struct {
 	Timeframe string
 	TFMSecs   int64
 
-	EndMS    int64
-	rowIdx   int             // The index of the next Bar in the cache, -1 means it has ended 缓存中下一个Bar的索引，-1表示已结束
-	caches   []*banexg.Kline // Cached Bar, fire one by one, reload after reading 缓存的Bar，逐个fire，读取完重新加载
-	nextMS   int64           // The 13-digit millisecond end timestamp of the next bar, math.MaxInt32 indicates the end 下一个bar的结束13位毫秒时间戳，math.MaxInt32表示结束
-	offsetMS int64
+	EndMS     int64
+	FirstRead bool
+	rowIdx    int             // The index of the next Bar in the cache, -1 means it has ended 缓存中下一个Bar的索引，-1表示已结束
+	caches    []*banexg.Kline // Cached Bar, fire one by one, reload after reading 缓存的Bar，逐个fire，读取完重新加载
+	nextMS    int64           // The 13-digit millisecond end timestamp of the next bar, math.MaxInt32 indicates the end 下一个bar的结束13位毫秒时间戳，math.MaxInt32表示结束
+	offsetMS  int64
 }
 
 func NewTfKlineLoader(exs *orm.ExSymbol, tf string) *TfKlineLoader {
@@ -746,6 +758,7 @@ func NewTfKlineLoader(exs *orm.ExSymbol, tf string) *TfKlineLoader {
 		Timeframe: tf,
 		TFMSecs:   tfMSecs,
 		EndMS:     endMS,
+		FirstRead: true,
 	}
 }
 
@@ -807,6 +820,9 @@ func (f *TfKlineLoader) ReadTo(end int64, force bool) []*banexg.Kline {
 		if barEnd == end {
 			break
 		}
+	}
+	if f.FirstRead {
+		f.FirstRead = false
 	}
 	return result
 }

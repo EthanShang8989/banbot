@@ -47,7 +47,7 @@ func (o *LocalOrderMgr) ProcessOrders(sess *ormo.Queries, job *strat.StratJob) (
 }
 
 func (o *LocalOrderMgr) UpdateByBar(allOpens []*ormo.InOutOrder, bar *orm.InfoKline) *errs.Error {
-	if len(allOpens) == 0 || core.EnvReal {
+	if len(allOpens) == 0 || core.EnvReal || core.LiveMode {
 		return nil
 	}
 	// Simulate order entry and exit, which are usually executed at the beginning of the bar
@@ -67,9 +67,13 @@ func (o *LocalOrderMgr) UpdateByBar(allOpens []*ormo.InOutOrder, bar *orm.InfoKl
 	if err != nil {
 		return err
 	}
+	return o.updateProfitAndWallets(allOpens, curOrders, bar)
+}
+
+func (o *LocalOrderMgr) updateProfitAndWallets(allOpens, curOrders []*ormo.InOutOrder, bar *orm.InfoKline) *errs.Error {
 	// Update all orders to profit at the end of the bar
 	// 更新所有订单在bar结束时利润
-	err = o.OrderMgr.UpdateByBar(curOrders, bar)
+	err := o.OrderMgr.UpdateByBar(curOrders, bar)
 	if err != nil {
 		return err
 	}

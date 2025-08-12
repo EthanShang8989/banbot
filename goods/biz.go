@@ -37,6 +37,7 @@ func GetPairFilters(items []*config.CommonPairFilter, withInvalid bool) ([]IFilt
 	fts := make([]IFilter, 0, len(items))
 	// 未启用定期刷新，则允许成交量为空的品种
 	allowEmpty := config.PairMgr.Cron == ""
+	var err *errs.Error
 	for _, cfg := range items {
 		var output IFilter
 		var base = BaseFilter{Name: cfg.Name, AllowEmpty: allowEmpty}
@@ -60,7 +61,12 @@ func GetPairFilters(items []*config.CommonPairFilter, withInvalid bool) ([]IFilt
 		case "CorrelationFilter":
 			output = &CorrelationFilter{BaseFilter: base}
 		case "BlockFilter":
-			output = &BlockFilter{BaseFilter: base}
+			blockFts := &BlockFilter{BaseFilter: base}
+			blockFts.Pairs, err = config.ParsePairs(blockFts.Pairs...)
+			if err != nil {
+				return nil, err
+			}
+			output = blockFts
 		default:
 			return nil, errs.NewMsg(errs.CodeParamInvalid, "unknown symbol filter: %s", cfg.Name)
 		}

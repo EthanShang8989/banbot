@@ -81,7 +81,8 @@ func (t *CryptoTrader) Init() *errs.Error {
 func (t *CryptoTrader) initOdMgr() *errs.Error {
 	if !core.EnvReal {
 		biz.InitFakeWallets()
-		biz.InitLocalOrderMgr(t.orderCB, true)
+		biz.InitLocalLiveOrderMgr(t.orderCB, true)
+		t.dp.OnMinKlines = biz.CallLocalLiveOdMgrsKline
 		return nil
 	}
 	biz.InitLiveOrderMgr(t.orderCB)

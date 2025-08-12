@@ -144,6 +144,7 @@ func ParseConfigs(paths []string, showLog bool) (*Config, *errs.Error) {
 		if err != nil {
 			return nil, errs.NewFull(core.ErrIOReadFail, err, "Read %s Fail", path)
 		}
+		fileData = []byte(os.ExpandEnv(string(fileData)))
 		var unpak map[string]interface{}
 		err = yaml.Unmarshal(fileData, &unpak)
 		if err != nil {
@@ -385,7 +386,10 @@ func ApplyConfig(args *CmdArgs, c *Config) *errs.Error {
 	}
 	StratPerf = c.StratPerf
 	Pairs, _ = utils2.UniqueItems(c.Pairs)
-	SetRunPolicy(true, c.RunPolicy...)
+	err := SetRunPolicy(true, c.RunPolicy...)
+	if err != nil {
+		return err
+	}
 	_, needCalc := GetStaticPairs()
 	if needCalc && len(c.PairFilters) == 0 {
 		return errs.NewMsg(core.ErrBadConfig, "`pairs` or `pairlists` is required")
@@ -403,11 +407,11 @@ func ApplyConfig(args *CmdArgs, c *Config) *errs.Error {
 			Items: make(map[string]map[string]interface{}),
 		}
 	}
-	err := initExgAccs(args)
+	err = initExgAccs(args)
 	if err != nil {
 		return err
 	}
-	err = parsePairs()
+	Pairs, err = ParsePairs(Pairs...)
 	if err != nil {
 		return err
 	}
@@ -427,26 +431,54 @@ func ApplyConfig(args *CmdArgs, c *Config) *errs.Error {
 }
 
 // SetRunPolicy set run_policy and their indexs
-func SetRunPolicy(index bool, items ...*RunPolicyConfig) {
+func SetRunPolicy(index bool, items ...*RunPolicyConfig) *errs.Error {
 	if items == nil {
 		items = make([]*RunPolicyConfig, 0)
 	}
 	nameCnts := make(map[string]int)
+	var err *errs.Error
+	var pairMap = make(map[string]string)
 	for _, pol := range items {
 		num, _ := nameCnts[pol.Name]
 		if index {
 			pol.Index = num
 		}
 		nameCnts[pol.Name] = num + 1
+		if len(pol.Pairs) > 0 {
+			pol.Pairs, err = ParsePairs(pol.Pairs...)
+			if err != nil {
+				return err
+			}
+		}
 		if pol.Params == nil {
 			pol.Params = make(map[string]float64)
 		}
-		if pol.PairParams == nil {
-			pol.PairParams = make(map[string]map[string]float64)
+		if len(pol.PairParams) > 0 {
+			for p := range pol.PairParams {
+				pairMap[p] = ""
+			}
 		}
 		pol.defs = make(map[string]*core.Param)
 	}
+	if len(pairMap) > 0 {
+		olds := utils.KeysOfMap(pairMap)
+		stdPairs, err := ParsePairs(olds...)
+		if err != nil {
+			return err
+		}
+		for i, p := range olds {
+			pairMap[p] = stdPairs[i]
+		}
+		for _, pol := range items {
+			pairParams := make(map[string]map[string]float64)
+			for p, v := range pol.PairParams {
+				pairParams[pairMap[p]] = v
+			}
+			pol.PairParams = pairParams
+		}
+	}
 	RunPolicy = items
+	return nil
 }
 
 // GetStaticPairs 合并pairs和run_policy.pairs返回，bool表示是否需要动态计算
@@ -1203,22 +1235,22 @@ func GetLangMsg(lang, code, defVal string) string {
 	return code
 }
 
-// parse short pairs to standard pair format
-func parsePairs() *errs.Error {
+// ParsePairs parse short pairs to standard pair format
+func ParsePairs(pairs ...string) ([]string, *errs.Error) {
 	if core.ExgName == "china" {
-		return nil
+		return pairs, nil
 	}
 	quote := ""
 	if len(StakeCurrency) > 0 {
 		quote = StakeCurrency[0]
 	}
-	var result = make([]string, 0, len(Pairs))
-	for _, p := range Pairs {
+	var result = make([]string, 0, len(pairs))
+	for _, p := range pairs {
 		if strings.Contains(p, "/") {
 			result = append(result, p)
 			continue
 		} else if quote == "" {
-			return errs.NewMsg(core.ErrBadConfig, "`stake_currency` is required")
+			return nil, errs.NewMsg(core.ErrBadConfig, "`stake_currency` is required")
 		}
 		if core.Market == banexg.MarketSpot {
 			result = append(result, fmt.Sprintf("%s/%s", p, quote))
@@ -1227,9 +1259,8 @@ func parsePairs() *errs.Error {
 		} else if core.Market == banexg.MarketInverse {
 			result = append(result, fmt.Sprintf("%s/%s:%s", p, quote, p))
 		} else {
-			return errs.NewMsg(core.ErrBadConfig, "option market don't support short pair")
+			return nil, errs.NewMsg(core.ErrBadConfig, "option market don't support short pair")
 		}
 	}
-	Pairs = result
-	return nil
+	return result, nil
 }

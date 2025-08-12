@@ -27,6 +27,15 @@ const (
 	InOutStatusDelete
 )
 
+var InOutStatusMap = map[int64]string{
+	InOutStatusInit:      "init",
+	InOutStatusPartEnter: "partEnter",
+	InOutStatusFullEnter: "fullEnter",
+	InOutStatusPartExit:  "partExit",
+	InOutStatusFullExit:  "fullExit",
+	InOutStatusDelete:    "delete",
+}
+
 const (
 	OdStatusInit = iota
 	OdStatusPartOK

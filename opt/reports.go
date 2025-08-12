@@ -6,11 +6,6 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"github.com/banbox/banbot/orm"
-	"github.com/banbox/banexg"
-	"github.com/olekukonko/tablewriter/renderer"
-	"github.com/olekukonko/tablewriter/tw"
-	"gonum.org/v1/gonum/floats"
 	"math"
 	"os"
 	"path/filepath"
@@ -18,6 +13,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/banbox/banbot/orm"
+	"github.com/banbox/banexg"
+	"github.com/olekukonko/tablewriter/renderer"
+	"github.com/olekukonko/tablewriter/tw"
+	"gonum.org/v1/gonum/floats"
 
 	"github.com/banbox/banbot/biz"
 	"github.com/banbox/banbot/btime"
@@ -179,7 +180,7 @@ func (r *BTResult) dumpBtFiles() {
 
 	r.dumpStratOutputs()
 
-	r.dumpGraph()
+	r.DumpCharts()
 
 	r.dumpDetail("")
 }
@@ -814,7 +815,7 @@ func (r *BTResult) dumpStratOutputs() {
 	}
 }
 
-func (r *BTResult) dumpGraph() {
+func (r *BTResult) DumpCharts() {
 	odNum := make([]float64, 0, len(r.Plots.OdNum))
 	for _, v := range r.Plots.OdNum {
 		odNum = append(odNum, float64(v))
@@ -1035,7 +1036,7 @@ func selectPairs(r *BTResult, name string) []string {
 	return fn(r)
 }
 
-func parseBtResult(path string) (*BTResult, *errs.Error) {
+func ParseBtResult(path string) (*BTResult, *errs.Error) {
 	data, err_ := os.ReadFile(path)
 	if err_ != nil {
 		return nil, errs.New(errs.CodeIOReadFail, err_)

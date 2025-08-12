@@ -40,7 +40,10 @@ func RunBackTest(args *config.CmdArgs) *errs.Error {
 		policyList := config.RunPolicy
 		for i, item := range policyList {
 			log.Info("start backtest", zap.Int("id", i+1), zap.String("name", item.Name))
-			config.SetRunPolicy(true, item)
+			err = config.SetRunPolicy(true, item)
+			if err != nil {
+				return err
+			}
 			outDir := runBackTest(fmt.Sprintf("%s%d", args.OutPath, i+1), "")
 			err_ := utils.CopyDir(outDir, fmt.Sprintf("%s_%d", outDir, i+1))
 			if err_ != nil {

@@ -3,6 +3,13 @@ package opt
 import (
 	_ "embed"
 	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+
 	"github.com/banbox/banbot/biz"
 	"github.com/banbox/banbot/config"
 	"github.com/banbox/banbot/core"
@@ -13,12 +20,6 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
-	"math"
-	"os"
-	"path/filepath"
-	"slices"
-	"strconv"
-	"strings"
 )
 
 type FnCalcOptBest = func(items []*OptInfo) *OptInfo
@@ -225,7 +226,7 @@ func (r *BTResult) BriefLine() string {
 
 func (o *OptInfo) ToLine() string {
 	var text string
-	if o.Params != nil && len(o.Params) > 0 {
+	if len(o.Params) > 0 {
 		params := make(map[string]float64)
 		for k, v := range o.Params {
 			if isInt, ok := o.Ints[k]; ok && isInt {

@@ -2,10 +2,10 @@ package ormu
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/banbox/banbot/core"
+	"github.com/banbox/banbot/orm"
 
 	"github.com/banbox/banexg/errs"
 )
@@ -30,76 +30,28 @@ func (q *Queries) FindTasks(ctx context.Context, arg FindTasksParams) ([]*Task, 
 		create_at, start_at, stop_at, status, progress, order_num, profit_rate, win_rate, max_drawdown, sharpe, info, note 
 		FROM task WHERE 1=1 `)
 
-	params := make([]interface{}, 0)
-	paramCount := 1
-
-	// 添加可选的筛选条件
-	if arg.Mode != "" {
-		b.WriteString(fmt.Sprintf("AND mode = $%d ", paramCount))
-		params = append(params, arg.Mode)
-		paramCount++
-	}
-
-	if arg.Path != "" {
-		b.WriteString(fmt.Sprintf("AND path = $%d ", paramCount))
-		params = append(params, arg.Path)
-		paramCount++
-	}
-
-	if arg.Status > 0 {
-		b.WriteString(fmt.Sprintf("AND status = $%d ", paramCount))
-		params = append(params, arg.Status)
-		paramCount++
-	}
-
-	if arg.Strat != "" {
-		b.WriteString(fmt.Sprintf("AND strats LIKE $%d ", paramCount))
-		params = append(params, "%"+arg.Strat+"%")
-		paramCount++
-	}
-
-	if arg.Period != "" {
-		b.WriteString(fmt.Sprintf("AND periods LIKE $%d ", paramCount))
-		params = append(params, "%"+arg.Period+"%")
-		paramCount++
-	}
-
-	if arg.StartAt > 0 {
-		b.WriteString(fmt.Sprintf("AND start_at = $%d ", paramCount))
-		params = append(params, arg.StartAt)
-		paramCount++
-	}
-
-	if arg.StopAt > 0 {
-		b.WriteString(fmt.Sprintf("AND stop_at = $%d ", paramCount))
-		params = append(params, arg.StopAt)
-		paramCount++
-	}
-
-	if arg.MinStart > 0 {
-		b.WriteString(fmt.Sprintf("AND start_at >= $%d ", paramCount))
-		params = append(params, arg.MinStart)
-		paramCount++
-	}
-
-	if arg.MaxStart > 0 {
-		b.WriteString(fmt.Sprintf("AND start_at <= $%d ", paramCount))
-		params = append(params, arg.MaxStart)
-		paramCount++
-	}
-
-	if arg.MaxID > 0 {
-		b.WriteString(fmt.Sprintf("AND id < $%d ", paramCount))
-		params = append(params, arg.MaxID)
-		paramCount++
-	}
+	// 使用通用构建器减少重复代码
+	params, paramCount := orm.BuildQuery(&b, nil, 1, []orm.IfParam{
+		{Cond: arg.Mode != "", Val: arg.Mode, Tpl: "AND mode = $%d "},
+		{Cond: arg.Path != "", Val: arg.Path, Tpl: "AND path = $%d "},
+		{Cond: arg.Status > 0, Val: arg.Status, Tpl: "AND status = $%d "},
+		{Cond: arg.Strat != "", Val: "%" + arg.Strat + "%", Tpl: "AND strats LIKE $%d "},
+		{Cond: arg.Period != "", Val: "%" + arg.Period + "%", Tpl: "AND periods LIKE $%d "},
+		{Cond: arg.StartAt > 0, Val: arg.StartAt, Tpl: "AND start_at = $%d "},
+		{Cond: arg.StopAt > 0, Val: arg.StopAt, Tpl: "AND stop_at = $%d "},
+		{Cond: arg.MinStart > 0, Val: arg.MinStart, Tpl: "AND start_at >= $%d "},
+		{Cond: arg.MaxStart > 0, Val: arg.MaxStart, Tpl: "AND start_at <= $%d "},
+		{Cond: arg.MaxID > 0, Val: arg.MaxID, Tpl: "AND id < $%d "},
+	})
 
 	b.WriteString("ORDER BY id DESC ")
 
-	if arg.Limit > 0 {
-		b.WriteString(fmt.Sprintf("LIMIT $%d", paramCount))
-		params = append(params, arg.Limit)
-	}
+	// LIMIT 也通过构建器添加
+	params, _ = orm.BuildQuery(&b, params, paramCount, []orm.IfParam{{
+		Cond: arg.Limit > 0,
+		Val:  arg.Limit,
+		Tpl:  "LIMIT $%d",
+	}})
 
 	// 执行查询
 	rows, err := q.db.QueryContext(ctx, b.String(), params...)

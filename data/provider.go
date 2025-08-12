@@ -407,6 +407,7 @@ func SortFeeders(holds []IHistKlineFeeder, hold IHistKlineFeeder, insert bool) [
 type LiveProvider struct {
 	Provider[IKlineFeeder]
 	*KLineWatcher
+	OnMinKlines func(msg *KLineMsg, bars []*banexg.Kline) *errs.Error
 }
 
 func NewLiveProvider(callBack FnPairKline, envEnd FuncEnvEnd) (*LiveProvider, *errs.Error) {
@@ -454,14 +455,36 @@ func (p *LiveProvider) SubWarmPairs(items map[string]map[string]int, delOther bo
 	}
 	if len(newHolds) > 0 {
 		var jobs []WatchJob
+		var down1mPairs = make(map[int32]*orm.ExSymbol)
+		var minSince = btime.UTCStamp()
 		for _, h := range newHolds {
-			symbol, timeFrame := h.getSymbol(), h.getStates()[0].TimeFrame
+			sta := h.getStates()[0]
+			symbol := h.getSymbol()
 			if since, ok := sinceMap[symbol]; ok {
 				jobs = append(jobs, WatchJob{
 					Symbol:    symbol,
-					TimeFrame: timeFrame,
+					TimeFrame: sta.TimeFrame,
 					Since:     since,
 				})
+				minSince = min(minSince, since)
+			}
+			if sta.TFSecs >= 3600 {
+				exs, err := orm.GetExSymbolCur(symbol)
+				if err != nil {
+					return err
+				}
+				down1mPairs[exs.ID] = exs
+			}
+		}
+		if len(down1mPairs) > 0 {
+			// 对1h及以上大周期，也需要对1m的K线数据提前下载到最新，避免spider下载耗时过久
+			exchange, err := exg.GetWith(core.ExgName, core.Market, "")
+			if err != nil {
+				return err
+			}
+			err = orm.BulkDownOHLCV(exchange, down1mPairs, "1m", minSince, btime.UTCStamp(), 0, nil)
+			if err != nil {
+				return err
 			}
 		}
 		err = p.WatchJobs(core.ExgName, core.Market, "ohlcv", jobs...)
@@ -518,6 +541,12 @@ func makeOnKlineMsg(p *LiveProvider) func(msg *KLineMsg) {
 				_, err := hold.onNewBars(tfMSecs, bars)
 				if err != nil {
 					log.Error("onNewBars fail", zap.String("p", msg.Pair), zap.Error(err))
+				}
+				if p.OnMinKlines != nil {
+					err = p.OnMinKlines(msg, bars)
+					if err != nil {
+						log.Error("OnMinKlines fail", zap.String("p", msg.Pair), zap.Error(err))
+					}
 				}
 			}()
 		}

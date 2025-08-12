@@ -107,11 +107,14 @@ func (w *KLineWatcher) WatchJobs(exgName, marketType, jobType string, jobs ...Wa
 			tags = append(tags, prefix+j.Symbol)
 		}
 		pairs = append(pairs, j.Symbol)
+		alignOffMs := int64(exg.GetAlignOff(exgID, tfSecs) * 1000)
 		w.jobs[jobKey] = &PairTFCache{TimeFrame: j.TimeFrame, TFSecs: tfSecs, SubNextMS: j.Since,
-			AlignOffMS: int64(exg.GetAlignOff(exgID, tfSecs) * 1000)}
+			AlignOffMS: alignOffMs}
 		if j.Since > 0 {
-			// 尽早启动延迟监听
-			btime.SetPairMs(j.Symbol, j.Since, int64(tfSecs*1000))
+			// 尽早启动延迟监听，避免spider始终未发送k线
+			tfMSecs := int64(tfSecs * 1000)
+			alignBarMs := utils2.AlignTfMSecsOffset(btime.UTCStamp(), tfMSecs, alignOffMs)
+			btime.SetPairMs(j.Symbol, alignBarMs, tfMSecs)
 		}
 	}
 	if !strings.HasSuffix(prefix, "_") {

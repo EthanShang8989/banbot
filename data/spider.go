@@ -15,6 +15,7 @@ import (
 	"github.com/sasha-s/go-deadlock"
 	"go.uber.org/zap"
 	"maps"
+	"sync"
 	"time"
 )
 
@@ -668,6 +669,7 @@ func (m *Miner) startLoopKLines() {
 		if len(pairs) == 0 {
 			return
 		}
+		var pairLock sync.Mutex
 		startMS := utils2.AlignTfMSecs(curTimeMS, mntMSecs)
 		retry := 0
 		delay := time.Duration(20)
@@ -709,7 +711,9 @@ func (m *Miner) startLoopKLines() {
 						}
 					}
 				}
+				pairLock.Lock()
 				delete(pairs, p)
+				pairLock.Unlock()
 				return nil
 			})
 			if len(pairs) == 0 {

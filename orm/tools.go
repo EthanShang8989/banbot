@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/banbox/banbot/core"
@@ -1067,4 +1068,21 @@ func importCalendars(sess *Queries, cals []*CalendarBlock) *errs.Error {
 		}
 	}
 	return nil
+}
+
+type IfParam struct {
+	Cond bool
+	Val  interface{}
+	Tpl  string
+}
+
+func BuildQuery(b *strings.Builder, params []interface{}, start int, fields []IfParam) ([]interface{}, int) {
+	for _, f := range fields {
+		if f.Cond {
+			b.WriteString(fmt.Sprintf(f.Tpl, start))
+			params = append(params, f.Val)
+			start++
+		}
+	}
+	return params, start
 }
